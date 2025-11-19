@@ -1,0 +1,13 @@
+#!/bin/sh
+CPU=$(mpstat | awk '/all/ {print 100 - $NF}')
+MEM=$(awk '/^Mem/ {print $3}' <(free -m))
+SINK=$(pactl get-default-sink)
+VOL=$(pactl get-sink-volume "$SINK" | awk '{print $5}')
+MUTE=$(pactl get-sink-mute "$SINK" | awk '{print $2}')
+DATE=$(date '+%a %d/%m/%Y %H:%M:%S')
+
+if [ "$MUTE" = "yes" ]; then
+    VOL="🔇"
+fi
+
+xsetroot -name "${CPU}% | ${MEM} MB | Vol: ${VOL} | ${DATE}"

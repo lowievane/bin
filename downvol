@@ -1,0 +1,2 @@
+#!/bin/sh
+pactl set-sink-volume 0 -2% && notify-send "Vol: $(pactl get-sink-volume 0 | awk '{ print $5 }')"

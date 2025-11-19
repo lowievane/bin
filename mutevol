@@ -1,0 +1,7 @@
+#!/bin/sh
+pactl set-sink-mute 0 toggle
+if [ "$(pactl get-sink-mute 0)" == "Mute: no" ]; then
+	notify-send "Vol: $(pactl get-sink-volume 0 | awk '{ print $5 }')"
+else
+	notify-send "Vol: muted"
+fi

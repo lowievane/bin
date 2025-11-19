@@ -1,0 +1,3 @@
+#!/bin/sh
+read -p "Enter link: " link
+spotdl --output "${HOME}/mus/{list-name}/{list-position} {artist} - {title}" download "${link}"

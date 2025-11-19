@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: $0 [options] SRC... DEST
+Options:
+  -t EXT       Only copy files with extension EXT (can repeat)
+  -o           Overwrite existing files
+  -r           Remove files in DEST that no longer exist in any SRC
+  -w FILE      Write commands to batch script instead of executing
+  -n           Dry-run
+  -v           Verbose
+EOF
+  exit 1
+}
+
+OVERWRITE=false
+DELETE_MISSING=false
+DRYRUN=false
+VERBOSE=false
+WRITE_BATCH=""
+declare -a EXT_FILTERS=()
+
+while getopts ":t:orw:nvh" opt; do
+  case $opt in
+    t) EXT_FILTERS+=("$OPTARG") ;;
+    o) OVERWRITE=true ;;
+    r) DELETE_MISSING=true ;;
+    w) WRITE_BATCH="$OPTARG" ;;
+    n) DRYRUN=true ;;
+    v) VERBOSE=true ;;
+    h) usage ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [ "$#" -lt 2 ]; then usage; fi
+
+DEST="${@: -1}"
+SOURCES=("${@:1:$#-1}")
+
+for i in "${!SOURCES[@]}"; do SOURCES[$i]="${SOURCES[$i]%/}"; done
+DEST="${DEST%/}"
+
+if [ -n "$WRITE_BATCH" ]; then
+  echo "#!/usr/bin/env bash" >"$WRITE_BATCH"
+  echo "set -euo pipefail" >>"$WRITE_BATCH"
+  chmod +x "$WRITE_BATCH"
+fi
+
+run_cmd() {
+  if $DRYRUN || [ -n "$WRITE_BATCH" ]; then
+    [ -n "$WRITE_BATCH" ] && echo "$*" >>"$WRITE_BATCH"
+    $DRYRUN && echo "+ $*"
+  else
+    eval "$@"
+  fi
+}
+
+for SRC in "${SOURCES[@]}"; do
+  [ ! -d "$SRC" ] && { echo "Skipping missing: $SRC"; continue; }
+
+  if [ ${#EXT_FILTERS[@]} -eq 0 ]; then
+    find "$SRC" -type f -print0 | sort -z
+  else
+    find_cmd=(find "$SRC" -type f \( )
+    first=true
+    for ext in "${EXT_FILTERS[@]}"; do
+      if $first; then find_cmd+=(-iname "*.${ext}"); first=false
+      else find_cmd+=(-o -iname "*.${ext}")
+      fi
+    done
+    find_cmd+=(\) -print0)
+    "${find_cmd[@]}" | sort -z
+  fi \
+  | while IFS= read -r -d '' FILE; do
+      rel="${FILE#"$SRC"/}"
+      [ "$rel" = "$FILE" ] && rel="$(basename "$FILE")"
+      target="$DEST/$rel"
+      target_dir="$(dirname "$target")"
+
+      $VERBOSE && echo "[COPY] $FILE -> $target"
+
+      run_cmd "mkdir -p -- \"$target_dir\""
+
+      if $OVERWRITE; then
+        cmd_cp="cp -- \"$FILE\" \"$target\""
+      else
+        if cp --help | grep -q -- '-n'; then
+          cmd_cp="cp -n -- \"$FILE\" \"$target\""
+        else
+          if [ -e "$target" ]; then
+            $VERBOSE && echo "(skip existing)"
+            continue
+          fi
+          cmd_cp="cp -- \"$FILE\" \"$target\""
+        fi
+      fi
+
+      run_cmd "$cmd_cp"
+  done
+done
+
+if $DELETE_MISSING; then
+  $VERBOSE && echo "[DELETE] scanning..."
+  find "$DEST" -type f -print0 | while IFS= read -r -d '' DFILE; do
+    rel="${DFILE#"$DEST"/}"
+    found=false
+    for SRC in "${SOURCES[@]}"; do
+      [ -e "$SRC/$rel" ] && { found=true; break; }
+    done
+    if ! $found; then
+      $VERBOSE && echo "[REMOVE] $DFILE"
+      run_cmd "rm -f -- \"$DFILE\""
+    fi
+  done
+fi
+
+$VERBOSE && echo "Done."

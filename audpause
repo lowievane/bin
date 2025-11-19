@@ -1,0 +1,7 @@
+#!/bin/sh
+playerctl -p spotify play-pause
+if [ "$(playerctl status)" == "Paused" ]; then
+	notify-send "Audio: resumed"
+else
+	notify-send "Audio: paused"
+fi
